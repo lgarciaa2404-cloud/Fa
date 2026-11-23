@@ -1,0 +1,828 @@
+=====================================================================
+PARTES CLAVE: NAV LATERAL + FRAGMENTS + SQLITE + TABLA CON CLIC
+=====================================================================
+
+Cada SECCION es independiente. Copia solo la que necesites.
+Lo que dice "CAMBIAR" es lo que le metes tu segun el examen.
+Paquete usado: com.example.faahh  (CAMBIAR por el tuyo en la primera
+linea "package ..." de cada archivo .java)
+
+INDICE
+  1. SQLite: la base de datos (Datitos + Basesita)
+  2. NAV lateral: strings, menu, XML y MainActivity
+  3. Como agregar un fragment nuevo (4 pasos)
+  4. Fragment con ALTAS, BAJAS, CAMBIOS y CONSULTAS
+  5. Fragment con TABLA y CLIC en las filas
+  6. Fragment simple (plantilla vacia)
+  7. Que datos le metes tu (tabla de cambios)
+  8. Errores comunes
+
+
+=====================================================================
+1. SQLITE: LA BASE DE DATOS
+=====================================================================
+
+--- 1A. Datitos.java (la clase que guarda UN registro) ---
+
+CAMBIAR: los atributos (uno por cada columna de tu tabla).
+Tip: clic derecho dentro de la clase -> Generate -> Getter and Setter.
+
+package com.example.faahh;
+
+public class Datitos {
+    private int clave;
+    private String puesto;
+    private String depto;
+    private int sueldo;
+
+    public Datitos() { }
+
+    public Datitos(int clave, String puesto, String depto, int sueldo) {
+        this.clave = clave;
+        this.puesto = puesto;
+        this.depto = depto;
+        this.sueldo = sueldo;
+    }
+
+    public int getClave() { return clave; }
+    public void setClave(int clave) { this.clave = clave; }
+
+    public String getPuesto() { return puesto; }
+    public void setPuesto(String puesto) { this.puesto = puesto; }
+
+    public String getDepto() { return depto; }
+    public void setDepto(String depto) { this.depto = depto; }
+
+    public int getSueldo() { return sueldo; }
+    public void setSueldo(int sueldo) { this.sueldo = sueldo; }
+}
+
+
+--- 1B. Basesita.java (crea la BD y hace altas, bajas, cambios, consultas) ---
+
+CAMBIAR: nombre de la tabla "empleaditos", sus columnas y tipos
+(int, text, real) en el create table, y los mismos nombres en los
+ContentValues y en los select.
+El nombre de la BD ("administra") se puede poner en el constructor.
+
+package com.example.faahh;
+
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+
+import androidx.annotation.Nullable;
+
+import java.util.ArrayList;
+
+public class Basesita extends SQLiteOpenHelper {
+
+    public Basesita(@Nullable Context context) {
+        super(context, "administra", null, 1);
+    }
+
+    @Override
+    public void onCreate(SQLiteDatabase db) {
+        db.execSQL("create table empleaditos(clave int primary key, puesto text, depto text, sueldo int)");
+    }
+
+    @Override
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+    }
+
+    // ALTAS: true si se guardo, false si la clave ya existe
+    public boolean altas(Datitos d) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues registro = new ContentValues();
+        registro.put("clave", d.getClave());
+        registro.put("puesto", d.getPuesto());
+        registro.put("depto", d.getDepto());
+        registro.put("sueldo", d.getSueldo());
+        return db.insert("empleaditos", null, registro) != -1;
+    }
+
+    // BAJAS: cuantos borro (0 = no existia)
+    public int bajas(int clave) {
+        SQLiteDatabase db = getWritableDatabase();
+        return db.delete("empleaditos", "clave=" + clave, null);
+    }
+
+    // CAMBIOS: cuantos modifico (0 = no existia)
+    public int cambios(Datitos d) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues registro = new ContentValues();
+        registro.put("puesto", d.getPuesto());
+        registro.put("depto", d.getDepto());
+        registro.put("sueldo", d.getSueldo());
+        return db.update("empleaditos", registro, "clave=" + d.getClave(), null);
+    }
+
+    // CONSULTAS: busca por clave (null si no existe)
+    public Datitos consultas(int clave) {
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor fila = db.rawQuery(
+                "select clave, puesto, depto, sueldo from empleaditos where clave=" + clave, null);
+        Datitos d = null;
+        if (fila.moveToFirst()) {
+            d = new Datitos(fila.getInt(0), fila.getString(1), fila.getString(2), fila.getInt(3));
+        }
+        fila.close();
+        return d;
+    }
+
+    // LISTAR: todos los registros
+    public ArrayList<Datitos> listar() {
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor fila = db.rawQuery(
+                "select clave, puesto, depto, sueldo from empleaditos order by clave", null);
+        ArrayList<Datitos> lista = new ArrayList<>();
+        while (fila.moveToNext()) {
+            lista.add(new Datitos(fila.getInt(0), fila.getString(1), fila.getString(2), fila.getInt(3)));
+        }
+        fila.close();
+        return lista;
+    }
+}
+
+--- 1C. Como se usa desde cualquier Activity o Fragment ---
+
+    Basesita admin = new Basesita(this);                 // en Activity
+    Basesita admin = new Basesita(requireContext());     // en Fragment
+
+    admin.altas(new Datitos(1, "secretaria", "programacion", 10000));
+    admin.bajas(1);
+    Datitos d = admin.consultas(1);      // null si no existe
+    ArrayList<Datitos> todos = admin.listar();
+
+--- 1D. Importante ---
+  - Si cambias la tabla, DESINSTALA la app del emulador y vuelve a
+    correr (la BD vieja se queda guardada).
+  - insert devuelve -1 cuando falla (clave repetida).
+  - La columna "primary key" no se puede repetir.
+
+
+=====================================================================
+2. NAV LATERAL (NAVIGATION DRAWER)
+=====================================================================
+
+Son 4 piezas: strings, menu, XML de la Activity y MainActivity.java.
+
+--- 2A. res/values/strings.xml (agregar estas 2 lineas dentro de <resources>) ---
+
+    <string name="open_nav">Abrir menu</string>
+    <string name="close_nav">Cerrar menu</string>
+
+
+--- 2B. res/menu/menu_drawer.xml ---
+
+CAMBIAR: un <item> por cada fragment. Los ids (nav_uno, nav_dos...)
+son los que se usan en onNavigationItemSelected.
+(Crear: clic derecho en res -> New -> Android Resource Directory -> tipo
+menu; luego clic derecho en esa carpeta -> New -> Menu Resource File.)
+
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_uno"
+        android:title="Formulario" />
+
+    <item
+        android:id="@+id/nav_dos"
+        android:title="Tabla" />
+
+    <item
+        android:id="@+id/nav_tres"
+        android:title="Otro" />
+
+</menu>
+
+
+--- 2C. res/layout/activity_main.xml ---
+
+Ids que se usan en Java: drawer_layout, toolbar, fragment_container,
+nav_view.
+
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary" />
+
+        <FrameLayout
+            android:id="@+id/fragment_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </LinearLayout>
+
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        app:menu="@menu/menu_drawer" />
+
+</androidx.drawerlayout.widget.DrawerLayout>
+
+NOTA: el tema de la app debe ser "NoActionBar" (los proyectos nuevos
+ya lo traen: Theme.Material3.DayNight.NoActionBar). Si truena con
+"This Activity already has an action bar", revisa res/values/themes.xml.
+
+
+--- 2D. MainActivity.java ---
+
+CAMBIAR: los ifs de onNavigationItemSelected (un if por cada item del
+menu y el fragment que abre).
+
+package com.example.faahh;
+
+import android.os.Bundle;
+import android.view.MenuItem;
+
+import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.ActionBarDrawerToggle;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.fragment.app.Fragment;
+
+import com.google.android.material.navigation.NavigationView;
+
+public class MainActivity extends AppCompatActivity
+        implements NavigationView.OnNavigationItemSelectedListener {
+
+    DrawerLayout drawerLayout;
+    NavigationView navigationView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+
+        drawerLayout = findViewById(R.id.drawer_layout);
+        navigationView = findViewById(R.id.nav_view);
+        navigationView.setNavigationItemSelectedListener(this);
+
+        ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(this,
+                drawerLayout, toolbar, R.string.open_nav, R.string.close_nav);
+        drawerLayout.addDrawerListener(toggle);
+        toggle.syncState();
+
+        // Boton atras: si el menu esta abierto, lo cierra
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    drawerLayout.closeDrawer(GravityCompat.START);
+                } else {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
+
+        // Al abrir la app muestra el primer fragment
+        if (savedInstanceState == null) {
+            mostrar(new UnoFragment());
+            navigationView.setCheckedItem(R.id.nav_uno);
+        }
+    }
+
+    // Se llama cuando tocas una opcion del menu lateral
+    @Override
+    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+
+        if (id == R.id.nav_uno) {
+            mostrar(new UnoFragment());
+        } else if (id == R.id.nav_dos) {
+            mostrar(new DosFragment());
+        } else if (id == R.id.nav_tres) {
+            mostrar(new TresFragment());
+        }
+
+        drawerLayout.closeDrawer(GravityCompat.START);
+        return true;
+    }
+
+    // Cambia el fragment que se ve. Tambien se puede llamar desde un fragment:
+    //   ((MainActivity) requireActivity()).mostrar(new UnoFragment());
+    public void mostrar(Fragment fragment) {
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.fragment_container, fragment)
+                .commit();
+    }
+}
+
+
+=====================================================================
+3. COMO AGREGAR UN FRAGMENT NUEVO (4 PASOS)
+=====================================================================
+
+  1. Crear el layout:  clic derecho en layout -> New -> Layout Resource
+     File -> fragment_cuatro (root: LinearLayout).
+  2. Crear la clase:   clic derecho en el paquete -> New -> Java Class ->
+     CuatroFragment (copiar la plantilla de la seccion 6).
+  3. Agregar la opcion al menu: en menu_drawer.xml agregar
+         <item android:id="@+id/nav_cuatro" android:title="Cuatro" />
+  4. Agregar el if en onNavigationItemSelected:
+         } else if (id == R.id.nav_cuatro) {
+             mostrar(new CuatroFragment());
+
+
+=====================================================================
+4. FRAGMENT CON ALTAS, BAJAS, CAMBIOS Y CONSULTAS
+=====================================================================
+
+--- 4A. res/layout/fragment_uno.xml ---
+
+CAMBIAR: un EditText por cada columna de tu tabla (con su id).
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="10dp"
+    android:orientation="vertical">
+
+    <EditText
+        android:id="@+id/eclave"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="clave"
+        android:inputType="number" />
+
+    <EditText
+        android:id="@+id/epuesto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="puesto"
+        android:inputType="text" />
+
+    <EditText
+        android:id="@+id/edepto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="depto"
+        android:inputType="text" />
+
+    <EditText
+        android:id="@+id/esueldo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="sueldo"
+        android:inputType="number" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/altas"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="altas" />
+
+        <Button
+            android:id="@+id/bajas"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="bajas" />
+
+        <Button
+            android:id="@+id/cambios"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="cambios" />
+
+        <Button
+            android:id="@+id/consultas"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="consultas" />
+    </LinearLayout>
+
+</LinearLayout>
+
+
+--- 4B. UnoFragment.java ---
+
+CAMBIAR: los campos (EditText) y los datos que se leen. Si llega un
+dato desde otro fragment (clave) lo carga automaticamente.
+
+package com.example.faahh;
+
+import android.os.Bundle;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
+
+public class UnoFragment extends Fragment implements View.OnClickListener {
+
+    EditText eclave, epuesto, edepto, esueldo;
+    Basesita admin;
+
+    public UnoFragment() {
+        super(R.layout.fragment_uno);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        eclave = view.findViewById(R.id.eclave);
+        epuesto = view.findViewById(R.id.epuesto);
+        edepto = view.findViewById(R.id.edepto);
+        esueldo = view.findViewById(R.id.esueldo);
+
+        admin = new Basesita(requireContext());
+
+        view.findViewById(R.id.altas).setOnClickListener(this);
+        view.findViewById(R.id.bajas).setOnClickListener(this);
+        view.findViewById(R.id.cambios).setOnClickListener(this);
+        view.findViewById(R.id.consultas).setOnClickListener(this);
+
+        // Dato que manda otro fragment (ver seccion 5)
+        Bundle args = getArguments();
+        if (args != null && args.containsKey("clave")) {
+            Datitos d = admin.consultas(args.getInt("clave"));
+            if (d != null) ponerEnCampos(d);
+        }
+    }
+
+    @Override
+    public void onClick(View v) {
+        int id = v.getId();
+
+        if (id == R.id.altas) {
+            Datitos d = leerCampos();
+            if (d == null) return;
+            if (admin.altas(d)) {
+                aviso("agregado");
+                limpiar();
+            } else {
+                aviso("Ya existe esa clave");
+            }
+
+        } else if (id == R.id.bajas) {
+            int clave = leerClave();
+            if (clave < 0) return;
+            int borrados = admin.bajas(clave);
+            aviso(borrados > 0 ? "eliminado" : "No existe esa clave");
+            limpiar();
+
+        } else if (id == R.id.cambios) {
+            Datitos d = leerCampos();
+            if (d == null) return;
+            int modificados = admin.cambios(d);
+            aviso(modificados > 0 ? "modificado" : "No existe esa clave");
+            if (modificados > 0) limpiar();
+
+        } else if (id == R.id.consultas) {
+            int clave = leerClave();
+            if (clave < 0) return;
+            Datitos d = admin.consultas(clave);
+            if (d == null) {
+                aviso("No existe esa clave");
+            } else {
+                ponerEnCampos(d);
+            }
+        }
+    }
+
+    private void aviso(String texto) {
+        Toast.makeText(requireContext(), texto, Toast.LENGTH_SHORT).show();
+    }
+
+    private void ponerEnCampos(Datitos d) {
+        eclave.setText(String.valueOf(d.getClave()));
+        epuesto.setText(d.getPuesto());
+        edepto.setText(d.getDepto());
+        esueldo.setText(String.valueOf(d.getSueldo()));
+    }
+
+    private void limpiar() {
+        eclave.setText("");
+        epuesto.setText("");
+        edepto.setText("");
+        esueldo.setText("");
+    }
+
+    // Devuelve la clave escrita, o -1 si esta vacia o es invalida
+    private int leerClave() {
+        String c = eclave.getText().toString().trim();
+        if (c.isEmpty()) {
+            aviso("Escribe la clave");
+            return -1;
+        }
+        try {
+            return Integer.parseInt(c);
+        } catch (NumberFormatException e) {
+            aviso("Clave invalida");
+            return -1;
+        }
+    }
+
+    // Lee y valida todos los campos; null si algo esta mal
+    private Datitos leerCampos() {
+        int clave = leerClave();
+        if (clave < 0) return null;
+
+        String puesto = epuesto.getText().toString().trim();
+        String depto = edepto.getText().toString().trim();
+        String sueldoTxt = esueldo.getText().toString().trim();
+
+        if (puesto.isEmpty() || depto.isEmpty() || sueldoTxt.isEmpty()) {
+            aviso("Llena todos los campos");
+            return null;
+        }
+
+        int sueldo;
+        try {
+            sueldo = Integer.parseInt(sueldoTxt);
+        } catch (NumberFormatException e) {
+            aviso("Sueldo invalido");
+            return null;
+        }
+
+        return new Datitos(clave, puesto, depto, sueldo);
+    }
+}
+
+
+=====================================================================
+5. FRAGMENT CON TABLA Y CLIC EN LAS FILAS
+=====================================================================
+
+--- 5A. res/layout/fragment_dos.xml ---
+
+CAMBIAR: los TextView del encabezado (uno por columna).
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="10dp"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <TableLayout
+            android:id="@+id/tablita"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stretchColumns="*">
+
+            <TableRow
+                android:background="#64805D"
+                android:padding="5dp">
+
+                <TextView android:text="clave" />
+                <TextView android:text="puesto" />
+                <TextView android:text="depto" />
+                <TextView android:text="sueldo" />
+            </TableRow>
+
+        </TableLayout>
+    </ScrollView>
+
+</LinearLayout>
+
+
+--- 5B. DosFragment.java ---
+
+Que hace:
+  - Lee todos los registros de la BD y crea una fila por cada uno.
+  - Clic en la fila: abre UnoFragment mandando la clave en un Bundle.
+  - Clic en la celda depto: muestra un Toast (ejemplo de clic en celda).
+
+CAMBIAR: las celdas (txt1...txt4) segun tus columnas y que hace el clic.
+
+package com.example.faahh;
+
+import android.os.Bundle;
+import android.view.View;
+import android.widget.TableLayout;
+import android.widget.TableRow;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
+
+import java.util.ArrayList;
+
+public class DosFragment extends Fragment {
+
+    TableLayout tablita;
+    Basesita admin;
+
+    public DosFragment() {
+        super(R.layout.fragment_dos);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        tablita = view.findViewById(R.id.tablita);
+        admin = new Basesita(requireContext());
+
+        ArrayList<Datitos> lista = admin.listar();
+
+        for (final Datitos d : lista) {
+            TableRow fila = new TableRow(requireContext());
+
+            TextView txt1 = new TextView(requireContext());
+            TextView txt2 = new TextView(requireContext());
+            TextView txt3 = new TextView(requireContext());
+            TextView txt4 = new TextView(requireContext());
+
+            txt1.setPadding(10, 25, 10, 25);
+            txt2.setPadding(10, 25, 10, 25);
+            txt3.setPadding(10, 25, 10, 25);
+            txt4.setPadding(10, 25, 10, 25);
+
+            txt1.setText(String.valueOf(d.getClave()));
+            txt2.setText(d.getPuesto());
+            txt3.setText(d.getDepto());
+            txt4.setText(String.valueOf(d.getSueldo()));
+
+            // CLIC EN UNA CELDA: aqui, la celda depto
+            txt3.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    String depto = ((TextView) v).getText().toString();
+                    Toast.makeText(requireContext(), "depto: " + depto, Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            // CLIC EN LA FILA: abre UnoFragment y le manda la clave (Bundle)
+            fila.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Bundle datos = new Bundle();
+                    datos.putInt("clave", d.getClave());
+
+                    UnoFragment uno = new UnoFragment();
+                    uno.setArguments(datos);
+
+                    ((MainActivity) requireActivity()).mostrar(uno);
+                }
+            });
+
+            fila.addView(txt1);
+            fila.addView(txt2);
+            fila.addView(txt3);
+            fila.addView(txt4);
+            tablita.addView(fila);
+        }
+
+        Toast.makeText(requireContext(), "son " + lista.size() + " registros", Toast.LENGTH_SHORT).show();
+    }
+}
+
+Pasar datos entre fragments (resumen):
+    Manda:    Bundle b = new Bundle();
+              b.putInt("clave", 5);          // tambien putString("x", "hola")
+              fragmentDestino.setArguments(b);
+    Recibe:   Bundle args = getArguments();
+              if (args != null && args.containsKey("clave")) {
+                  int clave = args.getInt("clave");
+              }
+
+Nota: un clic en una celda NO pasa al clic de la fila (la celda lo
+"consume"). Si una celda no tiene listener, el clic llega a la fila.
+
+
+=====================================================================
+6. FRAGMENT SIMPLE (PLANTILLA VACIA)
+=====================================================================
+
+--- 6A. res/layout/fragment_tres.xml ---
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/ttexto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:text="Hola desde el fragment" />
+
+</LinearLayout>
+
+
+--- 6B. TresFragment.java ---
+
+package com.example.faahh;
+
+import android.os.Bundle;
+import android.view.View;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
+
+public class TresFragment extends Fragment {
+
+    public TresFragment() {
+        super(R.layout.fragment_tres);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        // Aqui va lo que iria en onCreate de una Activity,
+        // pero con view.findViewById(...) y requireContext() en vez de this
+        TextView ttexto = view.findViewById(R.id.ttexto);
+        Basesita admin = new Basesita(requireContext());
+        ttexto.setText("Hay " + admin.listar().size() + " empleados");
+    }
+}
+
+
+=====================================================================
+7. QUE DATOS LE METES TU (TABLA DE CAMBIOS)
+=====================================================================
+
+Si el examen cambia la tabla (ej. productos: codigo, nombre, precio):
+
+  QUE CAMBIAR                         DONDE
+  ----------------------------------  ------------------------------
+  Nombre de la tabla y columnas       Basesita.onCreate (create table)
+  Atributos de la clase de datos      Datitos.java (renombrar y/o clase)
+  Nombres en registro.put("...")      Basesita (altas y cambios)
+  Columnas en los select              Basesita (consultas y listar)
+  EditText (uno por columna)          fragment_uno.xml
+  Encabezado de la tabla              fragment_dos.xml
+  Celdas txt1..txtN                   DosFragment (for)
+  Opciones del menu lateral           menu_drawer.xml
+  Un if por cada opcion               MainActivity.onNavigationItemSelected
+  Una clase y un layout por pantalla  Un fragment por cada opcion
+
+Tips para cambiar nombres rapido: Refactor -> Rename (Shift+F6) sobre
+la clase o variable, y Ctrl+R (reemplazar) en el archivo.
+
+
+=====================================================================
+8. ERRORES COMUNES
+=====================================================================
+
+  - Rojo en todo R.id...: hay un error en algun XML. Corrige el XML,
+    luego Build -> Clean Project -> Rebuild Project.
+  - "no such table": desinstala la app del emulador y corre de nuevo.
+  - "already has an action bar": el tema de la app no es NoActionBar.
+  - El menu lateral abre pero no cambia el fragment: faltan los ifs
+    en onNavigationItemSelected, o los ids del menu no coinciden.
+  - NullPointerException en un fragment: findViewById se hizo sobre
+    "view." (en Fragment se usa view.findViewById, no findViewById).
+  - El nombre del archivo debe ser igual al de la clase
+    (UnoFragment.java -> class UnoFragment).
+  - Si no hay NavigationView/DrawerLayout reconocidos: estan en las
+    librerias material y drawerlayout, que ya vienen en los proyectos
+    nuevos. Si salen en rojo, Build -> Sync Project with Gradle Files.
